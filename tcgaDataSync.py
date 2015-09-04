@@ -314,7 +314,7 @@ class TcgaDataSync:
             if tarExtractFileInfo['extractDataFileExtension'] == 'txt':
                 handledFile = self.handleFileWithCsvInformation(tarExtractFileInfo, tarExtractGridOut)
                 return handledFile
-            if tarExtractFileInfo['extractDataFileExtension'] == 'pdf'
+            if tarExtractFileInfo['extractDataFileExtension'] == 'pdf':
                 handledFile['info'] = tarExtractFileInfo
                 handledFile['file'] = tarExtractGridOut.read()
                 handledFile['processed'] = False
