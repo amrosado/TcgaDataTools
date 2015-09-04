@@ -105,20 +105,53 @@ class TcgaDataSync:
         archiveTarExtractFileInfo['uploadingInstitution'] = archiveTarFileInfo['uploadingInstitution']
         archiveTarExtractFileInfo['dataInstrument'] = archiveTarFileInfo['dataInstrument']
         archiveTarExtractFileInfo['dataType'] = archiveTarFileInfo['dataType']
-        archiveTarExtractFileInfo['tarFilename'] = archiveTarFileInfo['tarFilename']
+        archiveTarExtractFileInfo['tarFilename'] = archiveTarFileInfo['filename']
 
         return archiveTarExtractFileInfo
 
     def checkAndUpdateTarExtractFileStatus(self, archiveTarExtractFileInfo, archiveTarExtractFile):
-        archiveTarExtractInfoGrid = gridfs.GridFS(self.tcgaGridFsDatabase, 'archiveExtractTarData')
+        archiveTarExtractGrid = gridfs.GridFS(self.tcgaGridFsDatabase, 'archiveExtractTarData')
         tcgaArchiveTarExtractFileList = self.tcgaDatabase.get_collection('tcgaTarExtractFileList')
 
         archiveGridTarExtractFile = None
 
+        archiveTarExtractFileListQuery = tcgaArchiveTarExtractFileList.find(archiveTarExtractFileInfo)
+
+        if archiveTarExtractFileListQuery.count() > 0:
+            for matchingTarExtractFileInfo in archiveTarExtractFileListQuery:
+                newArchiveGridTarExtractFile = archiveTarExtractGrid.new_file()
+                newArchiveGridTarExtractFile.write(archiveTarExtractFile.read())
+                newArchiveGridTarExtractFile.filename = archiveTarExtractFileInfo['filename']
+                newArchiveGridTarExtractFile.close()
+
+                if 'active' in matchingTarExtractFileInfo:
+                    if matchingTarExtractFileInfo['active']:
+                        if matchingTarExtractFileInfo['md5'] != newArchiveGridTarExtractFile.md5:
+                            matchingTarExtractFileInfo['active'] = False
+                            matchingTarExtractFileInfo.close()
+                            archiveTarExtractFileInfo['md5'] = newArchiveGridTarExtractFile.md5
+                            archiveTarExtractFileInfo['active'] = True
+                            archiveTarExtractFileInfo['fileId'] = newArchiveGridTarExtractFile._id
+                            tcgaArchiveTarExtractFileList.insert_one(archiveTarExtractFileInfo)
+                            archiveGridTarExtractFile = archiveTarExtractGrid.get(newArchiveGridTarExtractFile._id)
+                        else:
+                            archiveTarExtractGrid.delete(newArchiveGridTarExtractFile._id)
+                            archiveGridTarExtractFile = archiveTarExtractGrid.get(matchingTarExtractFileInfo['fileId'])
+        else:
+            newArchiveGridTarExtractFile = archiveTarExtractGrid.new_file()
+            newArchiveGridTarExtractFile.write(archiveTarExtractFile.read())
+            newArchiveGridTarExtractFile.filename = archiveTarExtractFileInfo['filename']
+            newArchiveGridTarExtractFile.close()
+            archiveTarExtractFileInfo['fileId'] = newArchiveGridTarExtractFile._id
+            archiveTarExtractFileInfo['md5'] = newArchiveGridTarExtractFile.md5
+            archiveTarExtractFileInfo['active'] = True
+            archiveGridTarExtractFile = archiveTarExtractGrid.get(newArchiveGridTarExtractFile._id)
+            tcgaArchiveTarExtractFileList.insert_one(archiveTarExtractFileInfo)
+
         return archiveGridTarExtractFile
 
     def checkAndUpdateTarFileStatus(self, archiveTarFileInfo, archiveTarFileRequest):
-        archiveTarInfoGrid = gridfs.GridFS(self.tcgaGridFsDatabase, 'archiveTarData')
+        archiveTarGrid = gridfs.GridFS(self.tcgaGridFsDatabase, 'archiveTarData')
         tcgaArchiveTarFileList = self.tcgaDatabase.get_collection('tcgaTarFileList')
 
         archiveGridTarGz = None
@@ -128,7 +161,7 @@ class TcgaDataSync:
         archiveFileListQuery = tcgaArchiveTarFileList.find(archiveTarFileInfo)
         if archiveFileListQuery.count() > 0:
             for matchingArchiveFileInfo in archiveFileListQuery:
-                newArchiveGridTarGz = archiveTarInfoGrid.new_file()
+                newArchiveGridTarGz = archiveTarGrid.new_file()
                 newArchiveGridTarGz.write(archiveTarFileRequest.content)
                 newArchiveGridTarGz.filename = archiveTarFileInfo['filename']
                 newArchiveGridTarGz.close()
@@ -141,86 +174,100 @@ class TcgaDataSync:
                             archiveTarFileInfo['active'] = True
                             archiveTarFileInfo['fileId'] = newArchiveGridTarGz._id
                             tcgaArchiveTarFileList.insert_one(archiveTarFileInfo)
-                            archiveGridTarGz = archiveTarInfoGrid.get(newArchiveGridTarGz._id)
+                            archiveGridTarGz = archiveTarGrid.get(newArchiveGridTarGz._id)
                         else:
-                            archiveTarInfoGrid.delete(newArchiveGridTarGz._id)
-                            archiveGridTarGz = archiveTarInfoGrid.get(matchingArchiveFileInfo['fileId'])
+                            archiveTarGrid.delete(newArchiveGridTarGz._id)
+                            archiveGridTarGz = archiveTarGrid.get(matchingArchiveFileInfo['fileId'])
         else:
-            newArchiveGridTarGz = archiveTarInfoGrid.new_file()
+            newArchiveGridTarGz = archiveTarGrid.new_file()
             newArchiveGridTarGz.write(archiveTarFileRequest.content)
             newArchiveGridTarGz.filename = archiveTarFileInfo['filename']
             newArchiveGridTarGz.close()
             archiveTarFileInfo['fileId'] = newArchiveGridTarGz._id
             archiveTarFileInfo['md5'] = newArchiveGridTarGz.md5
             archiveTarFileInfo['active'] = True
-            archiveGridTarGz = archiveTarInfoGrid.get(newArchiveGridTarGz._id)
+            archiveGridTarGz = archiveTarGrid.get(newArchiveGridTarGz._id)
             tcgaArchiveTarFileList.insert_one(archiveTarFileInfo)
 
         return archiveGridTarGz
+
+    def updateTarFileInfoFromFilename(self, tarFileInfo):
+        tarFileNameSplit = tarFileInfo['filename'].split('.')
+        if len(tarFileNameSplit) == 9:
+            tarFileInfo['level'] = tarFileNameSplit[3].split('_')[1]
+            tarFileInfo['version'] = tarFileNameSplit[4] + '.' + tarFileNameSplit[5] + '.' + tarFileNameSplit[6]
+        else:
+            pass
+        return tarFileInfo
+
+    def updateTarExtractFileInfoFromFilename(self, tarExtractFileInfo):
+        tarFilenameSplit = tarExtractFileInfo['filename'].split('/')
+        tarSecondSplit = tarFilenameSplit[1].split('.')
+        if len(tarSecondSplit) > 2:
+            tarExtractFileInfo['patientId'] = tarSecondSplit[0]
+            tarExtractFileInfo['extractData'] = tarSecondSplit[1]
+            tarExtractFileInfo['extractDataType'] = tarSecondSplit[2]
+            tarExtractFileInfo['extractDataFileExtension'] = tarSecondSplit[3]
+        elif len(tarSecondSplit) == 2:
+            tarExtractFileInfo['tarInsideInfo'] = tarSecondSplit[0]
+            tarExtractFileInfo['tarInsideInfoFileExtension'] = tarSecondSplit[1]
+        else:
+            pass
+        return tarExtractFileInfo
 
     def handleArchiveTarFile(self, archiveTarFileInfo, archiveTarGridOut):
         #Handle tar file acquired from TCGA archive
         archiveTarFile = tarfile.open(fileobj=archiveTarGridOut, mode='r:gz')
         archiveTarFileMembers = archiveTarFile.getmembers()
         for archiveBzFileMember in archiveTarFileMembers:
-            archiveTarFileInfo = archiveTarFile.getmember(archiveBzFileMember.name)
-            newArchiveGridFile = archiveInfoGrid.new_file()
-            newArchiveGridFile.filename = archiveTarFileInfo.name
-            archiveFile = archiveTarFile.extractfile(archiveTarFileInfo)
-            newArchiveGridFile.write(archiveFile.read())
-            newArchiveGridFile.close()
-            newArchiveGridOut = archiveInfoGrid.get(newArchiveGridFile._id)
-            if archiveInfoGrid.exists({'filename': archiveTarFileInfo.name}):
-                archiveInfoGridFind = archiveInfoGrid.find_one({'filename': archiveTarFileInfo.name})
-                if (archiveInfoGridFind.md5 != newArchiveGridOut.md5):
-                    archiveInfoGrid.delete(archiveInfoGridFind._id)
-                    newArchiveGridFile.close()
-                    archiveFileGridOutReturn = newArchiveGridOut
-                if (archiveInfoGridFind.md5 == newArchiveGridOut.md5):
-                    archiveInfoGrid.delete(newArchiveGridOut._id)
-                    archiveFileGridOutReturn = archiveInfoGridFind
-            else:
-                archiveFileGridOutReturn = newArchiveGridOut
-            self.handleArchiveFile(archiveFileGridOutReturn)
+            archiveTarMemberInfo = archiveTarFile.getmember(archiveBzFileMember.name)
+
+            newTarFileListInfo = self.generateTarExtractInfoBaseFromTarFileInfo(archiveTarFileInfo)
+            newTarFileListInfo['filename'] = archiveTarMemberInfo.name
+            newTarFileListInfo = self.updateTarExtractFileInfoFromFilename(newTarFileListInfo)
+
+            tarFileExtractObject = archiveTarFile.extractfile(archiveBzFileMember.name)
+            tarFileExtractGridOut = self.checkAndUpdateTarExtractFileStatus(newTarFileListInfo, tarFileExtractObject)
+
+            self.handleArchiveFile(newTarFileListInfo, tarFileExtractGridOut)
 
     def handleArchiveContent(self, archiveDictUsed):
 
         for archiveContent in archiveDictUsed['data']:
             archiveContentRequest = self.tcgaSession.get(archiveContent[2])
             archiveFileUrl = archiveContent[2]
-            archiveTarFileInfo = self.generateInformationFromArchiveUrl(archiveFileUrl)
+            archiveTarFileInfo = self.generateTarInformationFromArchiveUrl(archiveFileUrl)
+            archiveTarFileInfo = self.updateTarFileInfoFromFilename(archiveTarFileInfo)
 
             archiveGridTarGz = self.checkAndUpdateTarFileStatus(archiveTarFileInfo, archiveContentRequest)
+            archiveTarFileInfo['fileId'] = archiveGridTarGz._id
+            self.handleArchiveTarFile(archiveTarFileInfo, archiveGridTarGz)
 
-    def handleArchiveFile(self, archiveBzFile):
-        archiveName = archiveBzFile.name
-        archiveNameSplit = archiveName.split('/')
-        archiveFileName = archiveNameSplit[1]
-        archiveDirName = archiveNameSplit[0]
-        archiveInfoFileNameSplit = archiveFileName.split('.')
-        archiveDirInfoSplit = archiveDirName.split('.')
+    def handleArchiveFile(self, tarExtractFileInfo, tarExtractGridOut):
 
-        if len(archiveDirInfoSplit) > 0:
+        if 'tarInsideInfo' in tarExtractFileInfo:
+            if tarExtractFileInfo['tarInsideInfo'] == 'CHANGES_DCC':
+                pass
+            elif tarExtractFileInfo['tarInsideInfo'] == 'DESCRIPTION':
+                pass
+            elif tarExtractFileInfo['tarInsideInfo'] == 'MANIFEST':
+                pass
+            elif tarExtractFileInfo['tarInsideInfo'] == 'README_DCC':
+                pass
+            elif tarExtractFileInfo['tarInsideInfo'] == 'CHANGES':
+                pass
+            elif tarExtractFileInfo['tarInsideInfo'] == 'CHANGES_DCC':
+                pass
+            elif tarExtractFileInfo['tarInsideInfo'] == 'DCC_ALTERED_FILES':
+                pass
+            else:
+                pass
+        elif 'patientId' in tarExtractFileInfo:
+            if tarExtractFileInfo['extractDataFileExtension'] == 'txt':
+                archiveFileText = tarExtractGridOut.read()
+                archiveFileCsv = self.processTcgaCsv(archiveFileText)
+        else:
             pass
-        if archiveFileName == 'CHANGES_DCC.txt':
-            pass
-        elif archiveFileName == 'DESCRIPTION.txt':
-            pass
-        elif archiveFileName == 'MANIFEST.txt':
-            pass
-        elif archiveFileName == 'README_DCC.txt':
-            pass
-        elif archiveFileName == 'CHANGES.txt':
-            pass
-        elif archiveFileName == 'CHANGES_DCC.txt':
-            pass
-        elif archiveFileName == 'DCC_ALTERED_FILES.txt':
-            pass
-        elif len(archiveInfoFileNameSplit) > 2:
-            archiveFileText = archiveBzFile.read()
-            archiveFileCsv = self.processTcgaCsv(archiveFileText)
-            pass
-        pass
 
     def __init__(self):
         self.mongoClient = pymongo.MongoClient('localhost', 27017)
