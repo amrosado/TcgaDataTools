@@ -50,6 +50,8 @@ class TcgaDataSync:
     def syncTcgaWithTag(self, tagDict):
         latestArchiveDic = self.getLatestArchive()
         self.handleArchiveContentWithTagDict(latestArchiveDic, tagDict)
+        #print statement
+        print 'Starting to sync datastore with tag %s' % (str(tagDict))
 
     def syncTcga(self):
         latestArchiveDic = self.getLatestArchive()
@@ -78,6 +80,7 @@ class TcgaDataSync:
             tcgaArchiveInfo.insert_one({'fieldNames': latestArchiveCsvDict['fieldNames'], 'data': latestArchiveCsvDict['data'], 'date': currentDateTime})
             archiveDictUsed = latestArchiveCsvDict
 
+        print('Retrieved latest archive information')
         return archiveDictUsed
 
     def generateTarInformationFromArchiveUrl(self, archiveFileUrl):
@@ -140,9 +143,11 @@ class TcgaDataSync:
                             archiveTarExtractFileInfo['fileId'] = newArchiveGridTarExtractFile._id
                             tcgaArchiveTarExtractFileList.insert_one(archiveTarExtractFileInfo)
                             archiveGridTarExtractFile = archiveTarExtractGrid.get(newArchiveGridTarExtractFile._id)
+                            print 'Updated extracted file %s from tar %s to gridfs' % (archiveTarExtractFileInfo['filename'], archiveTarExtractFileInfo['tarFilename'])
                         else:
                             archiveTarExtractGrid.delete(newArchiveGridTarExtractFile._id)
                             archiveGridTarExtractFile = archiveTarExtractGrid.get(matchingTarExtractFileInfo['fileId'])
+                            print 'Retrieved extracted file %s from tar %s to gridfs' % (archiveTarExtractFileInfo['filename'], archiveTarExtractFileInfo['tarFilename'])
         else:
             newArchiveGridTarExtractFile = archiveTarExtractGrid.new_file()
             newArchiveGridTarExtractFile.write(archiveTarExtractFile.read())
@@ -153,6 +158,7 @@ class TcgaDataSync:
             archiveTarExtractFileInfo['active'] = True
             archiveGridTarExtractFile = archiveTarExtractGrid.get(newArchiveGridTarExtractFile._id)
             tcgaArchiveTarExtractFileList.insert_one(archiveTarExtractFileInfo)
+            print 'Added extracted file %s from tar %s to gridfs' % (archiveTarExtractFileInfo['filename'], archiveTarExtractFileInfo['tarFilename'])
 
         return archiveGridTarExtractFile
 
@@ -181,7 +187,9 @@ class TcgaDataSync:
                             archiveTarFileInfo['fileId'] = newArchiveGridTarGz._id
                             tcgaArchiveTarFileList.insert_one(archiveTarFileInfo)
                             archiveGridTarGz = archiveTarGrid.get(newArchiveGridTarGz._id)
+                            print 'Updated tar file %s from gridfs' % (archiveTarFileInfo['filename'])
                         else:
+                            print 'Retrieved tar file %s from gridfs' % (archiveTarFileInfo['filename'])
                             archiveTarGrid.delete(newArchiveGridTarGz._id)
                             archiveGridTarGz = archiveTarGrid.get(matchingArchiveFileInfo['fileId'])
         else:
@@ -194,6 +202,7 @@ class TcgaDataSync:
             archiveTarFileInfo['active'] = True
             archiveGridTarGz = archiveTarGrid.get(newArchiveGridTarGz._id)
             tcgaArchiveTarFileList.insert_one(archiveTarFileInfo)
+            print('Added tar file %s to gridfs', archiveTarFileInfo['filename'])
 
         return archiveGridTarGz
 
