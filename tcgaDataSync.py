@@ -8,6 +8,8 @@ import requests
 import bs4
 import tarfile
 import datetime
+import pdfminer
+from PIL import Image
 
 class TcgaDataSync:
     tcgaDatabase = None
@@ -44,6 +46,10 @@ class TcgaDataSync:
         csvDict['fieldNames'] = fieldNames
 
         return csvDict
+
+    def syncTcgaWithTag(self, tagDict):
+        latestArchiveDic = self.getLatestArchive()
+        self.handleArchiveContentWithTagDict(latestArchiveDic, tagDict)
 
     def syncTcga(self):
         latestArchiveDic = self.getLatestArchive()
@@ -203,11 +209,15 @@ class TcgaDataSync:
     def updateTarExtractFileInfoFromFilename(self, tarExtractFileInfo):
         tarFilenameSplit = tarExtractFileInfo['filename'].split('/')
         tarSecondSplit = tarFilenameSplit[1].split('.')
-        if len(tarSecondSplit) > 2:
+        if len(tarSecondSplit) == 4:
             tarExtractFileInfo['patientId'] = tarSecondSplit[0]
             tarExtractFileInfo['extractData'] = tarSecondSplit[1]
             tarExtractFileInfo['extractDataType'] = tarSecondSplit[2]
             tarExtractFileInfo['extractDataFileExtension'] = tarSecondSplit[3]
+        if len(tarSecondSplit) == 3:
+            tarExtractFileInfo['patientId'] = tarSecondSplit[0]
+            tarExtractFileInfo['uid'] = tarSecondSplit[1]
+            tarExtractFileInfo['extractDataFileExtension'] = tarSecondSplit[2]
         elif len(tarSecondSplit) == 2:
             tarExtractFileInfo['tarInsideInfo'] = tarSecondSplit[0]
             tarExtractFileInfo['tarInsideInfoFileExtension'] = tarSecondSplit[1]
@@ -229,7 +239,7 @@ class TcgaDataSync:
             tarFileExtractObject = archiveTarFile.extractfile(archiveBzFileMember.name)
             tarFileExtractGridOut = self.checkAndUpdateTarExtractFileStatus(newTarFileListInfo, tarFileExtractObject)
 
-            self.handleArchiveFile(newTarFileListInfo, tarFileExtractGridOut)
+            handleFile = self.handleArchiveFile(newTarFileListInfo, tarFileExtractGridOut)
 
     def handleArchiveContent(self, archiveDictUsed):
 
@@ -241,33 +251,79 @@ class TcgaDataSync:
 
             archiveGridTarGz = self.checkAndUpdateTarFileStatus(archiveTarFileInfo, archiveContentRequest)
             archiveTarFileInfo['fileId'] = archiveGridTarGz._id
-            self.handleArchiveTarFile(archiveTarFileInfo, archiveGridTarGz)
+            handledContent = self.handleArchiveTarFile(archiveTarFileInfo, archiveGridTarGz)
+
+    def handleArchiveContentWithTagDict(self, archiveDictUsed, tagOfInterestDict):
+
+        for archiveContent in archiveDictUsed['data']:
+            archiveFileUrl = archiveContent[2]
+            archiveTarFileInfo = self.generateTarInformationFromArchiveUrl(archiveFileUrl)
+            if archiveTarFileInfo[tagOfInterestDict['type']] == tagOfInterestDict['tag']:
+                archiveTarFileInfo = self.updateTarFileInfoFromFilename(archiveTarFileInfo)
+                archiveContentRequest = self.tcgaSession.get(archiveContent[2])
+                archiveGridTarGz = self.checkAndUpdateTarFileStatus(archiveTarFileInfo, archiveContentRequest)
+                archiveTarFileInfo['fileId'] = archiveGridTarGz._id
+                handledContent = self.handleArchiveTarFile(archiveTarFileInfo, archiveGridTarGz)
+
+    def handleJustTextInformation(self, tarExtractFileInfo, tarExtractGridOut):
+        handledFile = {}
+
+        handledFileText = tarExtractGridOut.read()
+        handledFile['text'] = handledFileText
+        handledFile['info'] = tarExtractFileInfo
+        handledFile['processed'] = False
+
+        return handledFile
+
+    def handleFileWithCsvInformation(self, tarExtractFileInfo, tarExtractGridOut):
+        handledFile = {}
+
+        archiveFileText = tarExtractGridOut.read()
+        archiveFileCsv = self.processTcgaCsv(archiveFileText)
+
+        handledFile['csv'] = archiveFileCsv
+        handledFile['info'] = tarExtractFileInfo
+        handledFile['processed'] = True
+
+        return handledFile
 
     def handleArchiveFile(self, tarExtractFileInfo, tarExtractGridOut):
+        handledFile = {}
 
         if 'tarInsideInfo' in tarExtractFileInfo:
             if tarExtractFileInfo['tarInsideInfo'] == 'CHANGES_DCC':
-                pass
+                handledFile = self.handleJustTextInformation(tarExtractFileInfo, tarExtractGridOut)
             elif tarExtractFileInfo['tarInsideInfo'] == 'DESCRIPTION':
-                pass
+                handledFile = self.handleJustTextInformation(tarExtractFileInfo, tarExtractGridOut)
             elif tarExtractFileInfo['tarInsideInfo'] == 'MANIFEST':
-                pass
+                handledFile = self.handleJustTextInformation(tarExtractFileInfo, tarExtractGridOut)
             elif tarExtractFileInfo['tarInsideInfo'] == 'README_DCC':
-                pass
+                handledFile = self.handleJustTextInformation(tarExtractFileInfo, tarExtractGridOut)
             elif tarExtractFileInfo['tarInsideInfo'] == 'CHANGES':
-                pass
+                handledFile = self.handleJustTextInformation(tarExtractFileInfo, tarExtractGridOut)
             elif tarExtractFileInfo['tarInsideInfo'] == 'CHANGES_DCC':
-                pass
+                handledFile = self.handleJustTextInformation(tarExtractFileInfo, tarExtractGridOut)
             elif tarExtractFileInfo['tarInsideInfo'] == 'DCC_ALTERED_FILES':
-                pass
+                handledFile = self.handleJustTextInformation(tarExtractFileInfo, tarExtractGridOut)
             else:
-                pass
+                handledFile = self.handleJustTextInformation(tarExtractFileInfo, tarExtractGridOut)
+
+            return handledFile
+
         elif 'patientId' in tarExtractFileInfo:
             if tarExtractFileInfo['extractDataFileExtension'] == 'txt':
-                archiveFileText = tarExtractGridOut.read()
-                archiveFileCsv = self.processTcgaCsv(archiveFileText)
+                handledFile = self.handleFileWithCsvInformation(tarExtractFileInfo, tarExtractGridOut)
+                return handledFile
+            if tarExtractFileInfo['extractDataFileExtension'] == 'pdf'
+                handledFile['info'] = tarExtractFileInfo
+                handledFile['file'] = tarExtractGridOut.read()
+                handledFile['processed'] = False
+                return handledFile
         else:
-            pass
+            handledFile['info'] = tarExtractFileInfo
+            handledFile['file'] = tarExtractGridOut.read()
+            handledFile['processed'] = False
+            return handledFile
 
     def __init__(self):
         self.mongoClient = pymongo.MongoClient('localhost', 27017)
@@ -276,4 +332,6 @@ class TcgaDataSync:
         self.tcgaSession = requests.Session()
 
 tcgaSync = TcgaDataSync()
-tcgaSync.syncTcga()
+#tcgaSync.syncTcga()
+tagDict = {'type': 'dataInstrument', 'tag': 'pathology_reports'}
+tcgaSync.syncTcgaWithTag(tagDict)
